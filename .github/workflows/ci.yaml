@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, dev ]
+  pull_request:
+    branches: [ main, master, dev ]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+
+    # Spin up a PostgreSQL service container directly in GitHub Actions
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: test_db
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Run Ruff linter
+        run: uv run ruff check .
+
+      - name: Run Pytest
+        env:
+          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
+        run: uv run pytest
+
+      - name: Build app with uv
+        run: uv build
+
+      - name: Start application for endpoint checks
+        env:
+          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
+        run: |
+          # Start your ASGI/WSGI server in the background (adjust command to match your app entrypoint)
+          uv run uvicorn main:app --host 127.0.0.1 --port 8000 &
+          
+          # Give the app a few seconds to boot up and connect to the database
+          sleep 3
+
+      - name: Check /health endpoint
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:8000/health
+
+      - name: Check /db endpoint
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:8000/db
