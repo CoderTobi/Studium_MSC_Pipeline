@@ -1,134 +1,63 @@
-name: CI
+name: Python CI
 
 on:
   push:
-    branches: [ main, master, dev ]
-  pull_request:
-    branches: [ main, master, dev ]
+    branches: [dev, main]
+    paths:                                   
+      - mobile_systeme_und_cloud/script_beispiele/dev_ops/**
+      - .github/workflows/python-ci.yml
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: mobile_systeme_und_cloud/script_beispiele/dev_ops
 
 jobs:
   lint:
-    name: Lint (Ruff)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Install dependencies
-        run: uv sync --all-extras --dev
-
-      - name: Run Ruff linter
-        run: uv run ruff check . --output-format=github lint-report.json || true
-
-      - name: Upload lint report
-        uses: actions/upload-artifact@v4
-        with:
-          name: lint-report
-          path: lint-report.json
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
 
   test:
-    name: Pytest
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Install dependencies
-        run: uv sync --all-extras --dev
-
-      - name: Run Pytest
-        run: uv run pytest
-
-  build:
-    name: Build Package
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: pytest
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Install dependencies
-        run: uv sync --all-extras --dev
-
-      - name: Build app with uv
-        run: uv build
-
-  integration:
-    name: Endpoint Checks
+  build-dev:
+    needs: [lint, test]                      # nur, wenn Linter und Tests grün sind
+    if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:15-alpine
-        env:
-          POSTGRES_DB: test_db
-          POSTGRES_USER: test_user
-          POSTGRES_PASSWORD: test_password
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - run: docker build -t hello-api:dev .
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+  build-main:
+    needs: [lint, test]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write                        # Image in die Registry hochladen
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/login-action@v4
         with:
-          python-version: '3.11'
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Install dependencies
-        run: uv sync --all-extras --dev
-
-      - name: Start application for endpoint checks
-        env:
-          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
-        run: |
-          uv run uvicorn main:app --host 127.0.0.1 --port 8000 &
-          sleep 3
-
-      - name: Check /health endpoint
-        run: |
-          curl --fail --silent --show-error http://127.0.0.1:8000/health
-
-      - name: Check /db endpoint
-        run: |
-          curl --fail --silent --show-error http://127.0.0.1:8000/db
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/hello-api"   # ,, = Kleinbuchstaben, Pflicht für Image-Namen
+          docker build -t "$IMAGE:latest" .
+          docker push "$IMAGE:latest"
