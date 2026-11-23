@@ -7,10 +7,79 @@ on:
     branches: [ main, master, dev ]
 
 jobs:
-  test-and-build:
+  lint:
+    name: Lint (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Run Ruff linter
+        run: uv run ruff check . --output-format=github
+
+  test:
+    name: Pytest
     runs-on: ubuntu-latest
 
-    # Spin up a PostgreSQL service container directly in GitHub Actions
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Run Pytest
+        run: uv run pytest
+
+  build:
+    name: Build Package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Build app with uv
+        run: uv build
+
+  integration:
+    name: Endpoint Checks
+    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:15-alpine
@@ -43,25 +112,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras --dev
 
-      - name: Run Ruff linter
-        run: uv run ruff check . --output-format=github
-
-      - name: Run Pytest
-        env:
-          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
-        run: uv run pytest
-
-      - name: Build app with uv
-        run: uv build
-
       - name: Start application for endpoint checks
         env:
           DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
         run: |
-          # Start your ASGI/WSGI server in the background (adjust command to match your app entrypoint)
           uv run uvicorn main:app --host 127.0.0.1 --port 8000 &
-          
-          # Give the app a few seconds to boot up and connect to the database
           sleep 3
 
       - name: Check /health endpoint
