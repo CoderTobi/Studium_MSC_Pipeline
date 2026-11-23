@@ -10,9 +10,9 @@ on:
 permissions:
   contents: read
 
-defaults:
-  run:
-    working-directory: mobile_systeme_und_cloud/script_beispiele/dev_ops
+#defaults:
+#  run:
+#    working-directory: mobile_systeme_und_cloud/script_beispiele/dev_ops
 
 jobs:
   lint:
